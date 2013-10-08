@@ -2,7 +2,7 @@
 
 import socket, sys
 import httplib
-import pyodbc
+# import pyodbc
 import json
 import types
 import datetime
@@ -10,10 +10,9 @@ import urllib2
 import os
 import logging
 import re, time
-from logging import info, warning, debug
-import MySQLdb
+from logging import info, warning, debug # import MySQLdb
 
-#logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 
 class GerritDataException(Exception):
@@ -23,7 +22,7 @@ class DummyResult:
   def fetchall(self):
     return[]
 
-def execute(cursor,sql):
+def execute(cursor,sql,optional=None):
   return DummyResult()
   return cursor.execute(sql)
   pass
@@ -31,14 +30,15 @@ def execute(cursor,sql):
 def commit(cursor):
   pass
 
-def main(project):
+def main():
 
  
-  config = eval(project + '()')
+  config = AndroidGerritConfig()
 
   
-  connection = config.GetConnection()
-  cursor = connection.cursor()
+  #connection = config.GetConnection()
+  #cursor = connection.cursor()
+  cursor = None
   
   createTables(cursor)
 
@@ -77,12 +77,22 @@ def recordReview(cursor, reviewId, gerritMiner):
     print person
     person.ExecuteInsert(cursor)
 
-  for approval in changeDetails.Approvals:
-    print approval
-    approval.ExecuteInsert(cursor)
+  try:
+    approvals = changeDetails.Approvals
+    for approval in approvals:
+      print approval
+      approval.ExecuteInsert(cursor)
+  except:
+    print 'Could not retrieve approvalas'
+
     
   for patchNum in changeDetails.PatchSetNumbers:
-    patchSetDetailsJson = gerritMiner.GetPatchSetDetails(reviewId, patchNum)
+    try:
+      patchSetDetailsJson = gerritMiner.GetPatchSetDetails(reviewId, patchNum)
+    except Exception as e:
+      print 'Failed to GetPatchSetDetails: ' + e.message
+      continue
+
     if patchSetDetailsJson.has_key("error"):
             continue
     #print patchSetDetailsJson
@@ -96,13 +106,16 @@ def recordReview(cursor, reviewId, gerritMiner):
         pass
       patchSetFile.ExecuteInsert(cursor)
       if patchSetFile.NumberOfComments > 0:
-        patchFileBodyJson = gerritMiner.GetPatchFileBody(reviewId, patchNum, patchSetFile.path)
+        try:
+          patchFileBodyJson = gerritMiner.GetPatchFileBody(reviewId, patchNum, patchSetFile.path)
+        except Exception as e:
+            print 'Unexpected error, but tromping on: ' + str(e.message)
         patchSetFileBody = PatchSetFileBody(json.loads(patchFileBodyJson))
         for comment in patchSetFileBody.Comments:
           print comment
           comment.ExecuteInsert(cursor)
                       
-  commit(cursor) 
+  commit(cursor)
   return
 
 
@@ -262,6 +275,7 @@ class MySQLAndroidGerritConfig(AndroidGerritConfig):
   def __init__(self):
     AndroidGerritConfig.__init__(self)
   def GetConnection(self):
+    return None
     return MySQLdb.connect(host='localhost',
         user='root',
         passwd='shesuper',
@@ -406,10 +420,10 @@ class JSONLookup(object):
       debug("in get part is %s" % part)
       if type(obj) == list:
         obj = obj[int(part)]
-      elif type(obj) == dict:
+      elif type(obj) == dict and part in obj:
         obj = obj[part]
       else:
-        raise GerritDataException("can't get index %s of json object of type %s" % (str(part), str(type(obj))))
+        raise GerritDataException("can't get index %s of json object of type %s : %s" % (str(part), str(type(obj)),str(obj)))
 
     return self.FixType(obj)
 
@@ -453,6 +467,7 @@ class SQLInsertMixin:
     return [getattr(self, field) for field in self.SQLFields]
 
   def ExecuteInsert(self, cursor):
+    return DummyResult()
     sql = self.GetInsertStatement()
     vals = self.GetInsertValues()
     print sql
@@ -567,6 +582,7 @@ class Person(JSONLookup, SQLInsertMixin):
     return None
 
   def ExecuteInsert(self, cursor):
+    return DummyResult()
     vals = self.GetInsertValues()
     sql = "If not exists (select * from Person where PersonId = %d ) begin %s end" % (self.PersonId, self.GetInsertStatement()) 
     print sql
@@ -756,9 +772,10 @@ class Comment(JSONLookup, SQLInsertMixin):
     
 
 if __name__ == "__main__":
-  main(sys.argv[1])
+  main()
 
 
 
 
   
+
